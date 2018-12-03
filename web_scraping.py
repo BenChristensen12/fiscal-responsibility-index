@@ -27,74 +27,6 @@ from datetime import date
 import time
 import pandas as pd
 
-def get_members_of_congress(sessions=[i for i in range(105,116)]):
-    """Find the names of all members of congress for given sessions of Congress
-
-    Parameters:
-        sessions (list): Which sessions to find members of Congress
-
-    Returns:
-        (set): House Representatives for the given sessions
-               "Last Name, First Name, Title" (Title is Jr. or Sr.)
-        (set): Senators for the given session
-               "Last Name, First Name, Title"
-    """
-    base_url = "https://www.congress.gov/"
-    url = base_url+"members"
-    soup = BeautifulSoup(requests.get(url).text, 'html.parser')
-    #Congress.gov requires a wait time of two seconds while web crawling
-    time.sleep(2)
-    Senators, Representatives = set(), set()
-    for session in sessions:
-        year1 = (session - 100)*2+1987
-        year2 = year1+1
-        #Create string needed to find the session search box
-        string = "facetItemcongress"+str(session)+"__"+str(year1)+"_"+str(year2)+"_"
-        #Limit the members of Congress to the session we want
-        session_url = soup.find(name='a', href=True, attrs={"id":string}).attrs['href']
-        session_soup=BeautifulSoup(requests.get(base_url+session_url).text, 'html.parser')
-        time.sleep(2)
-        #Limit the members of Congress to only the Senate
-        session_url = session_soup.find(name='a', href=True, attrs={'id':'facetItemchamberSenate'}).attrs['href']
-        session_soup=BeautifulSoup(requests.get(base_url+session_url).text, 'html.parser')
-        time.sleep(2)
-        #Find the number of pages to cycle through for the member names
-        num_pages = int(session_soup.find(name='span', attrs={'class':'results-number'}).contents[2].split()[-1].replace(',','')) // 100 + 1
-        for page in range(1, num_pages+1):
-            session_soup=BeautifulSoup(requests.get(base_url+session_url+"&page="+str(page)).text, 'html.parser')
-            time.sleep(2)
-            page += 1
-            #Get members with title Senator
-            senator_tags = session_soup.find_all(name='a', href=True, string=re.compile(r"^Senator "))
-            for tag in senator_tags:
-                Senators.add(''.join([word + " " for word in tag.string.split()[1:]]).strip())
-
-        #Limit the members of Congress to the session we want
-        session_url = soup.find(name='a', href=True, attrs={"id":string}).attrs['href']
-        session_soup=BeautifulSoup(requests.get(base_url+session_url).text, 'html.parser')
-        time.sleep(2)
-        #Limit the members of Congress to only the House
-        session_url = session_soup.find(name='a', href=True, attrs={'id':'facetItemchamberHouse'}).attrs['href']
-        session_soup=BeautifulSoup(requests.get(base_url+session_url).text, 'html.parser')
-        time.sleep(2)
-        #Find the number of pages to cycle through for the member names
-        num_pages = int(session_soup.find(name='span', attrs={'class':'results-number'}).contents[2].split()[-1].replace(',','')) // 100 + 1
-        for page in range(1, num_pages+1):
-            session_soup=BeautifulSoup(requests.get(base_url+session_url+"&page="+str(page)).text, 'html.parser')
-            time.sleep(2)
-            page += 1
-            #Get members with title Senator
-            senator_tags = session_soup.find_all(name='a', href=True, string=re.compile(r"^Senator "))
-            for tag in senator_tags:
-                Representatives.add(''.join([word + " " for word in tag.string.split()[1:]]).strip())
-            #Get members with title Representative
-            representative_tags = session_soup.find_all(name='a', href=True, string=re.compile(r"^Representative "))
-            for tag in representative_tags:
-                Representatives.add(''.join([word + " " for word in tag.string.split()[1:]]).strip())
-
-
-    return Representatives, Senators
-
 def quick_members_of_congress(sessions=[i for i in range(105,116)]):
     """Find the names of all members of congress for given sessions of Congress
 
@@ -513,129 +445,6 @@ def get_representative_voting_records(Representatives, sessions=[i for i in rang
                                                         Representatives[key]["Nays"].append(bill_name)
                                                     elif tag.next.next.next.string == "Not Voting":
                                                         Representatives[key]["Not Voting"].append(bill_name)
-                                """
-                                browser.get(roll_call_url)
-                                soup = BeautifulSoup(browser.page_source, 'html.parser')
-                                #Use this to search for the number of reps who voted
-                                #   a certain way
-                                find_num = re.compile(r"\d+")
-                                #Tags for each type of vote
-                                yea_tag = soup.find(name='b', string=re.compile(r"^---- "))
-                                nay_tag = soup.find(name='b', string=re.compile(r"^---- NAYS"))
-                                nv_tag = soup.find(name='b', string=re.compile(r"^---- NOT VOTING"))
-                                #Number of votes for each type of vote
-                                num_yeas = int(find_num.findall(yea_tag.string)[0].replace(',',''))
-                                try:
-                                    num_nays = int(find_num.findall(nay_tag.string)[0].replace(',',''))
-                                except:
-                                    num_nays = 0
-                                try:
-                                    num_nvs = int(find_num.findall(nv_tag.string)[0].replace(',',''))
-                                except:
-                                    num_nvs = 0
-                                #Create lists of vote tags and num_votes for each type
-                                #   of vote for use in the following for loop
-                                vote_tags = [yea_tag, nay_tag, nv_tag]
-                                num_votes = [num_yeas, num_nays, num_nvs]
-                                vote_types = ["Yeas", "Nays", "Not Voting"]
-                                #Update dictionary with each type of votes
-                                column_heads = soup.find_all(name='td', attrs={'valign':'top', 'width':'33.3%'})
-                                starting_tags = column_heads[0:3]
-                                for i in range(3):
-                                    if num_votes[i] == 0:
-                                        num_columns1=num_votes[i]
-                                        i-=1
-                                        continue
-                                    if i == 1:
-                                        if num_votes[i] < 3:
-                                            num_columns1=num_votes[i]
-                                        elif num_votes[i] < 5:
-                                            num_columns1 = 2
-                                        else:
-                                            num_columns1 = 3
-                                        starting_tags = column_heads[3:3+num_columns1]
-                                    if i == 2:
-                                        if num_votes[i] < 3:
-                                            num_columns2=num_votes[i]
-                                        else:
-                                            num_columns2 = 3
-
-                                        starting_tags = column_heads[3+num_columns1:3+num_columns1+num_columns2]
-                                        if len(column_heads)>9 or (len(column_heads) > 9 and num_nays==0):
-                                            starting_tags = column_heads[num_columns2*-1:]
-                                    #The Nays and Not Voting tables behave a little
-                                    #   differently from the Yeas column
-                                    #if i == 1:
-                                    #    starting_tags[0] = starting_tags[0].next
-                                    #    starting_tags[1] = starting_tags[1].next
-                                    #if i == 2:
-                                    #    starting_tags = [tag.next for tag in starting_tags]
-                                    tag = starting_tags[0].next
-                                    #print(tag.string == '\n')
-                                    while tag.string == '\n':
-                                        tag = tag.next
-                                        #print(tag.string is None)
-                                    for j in range(num_votes[i]):
-                                        got_state = False
-                                        #The names are split between 3 columns
-                                        #print(num_votes[i], j)
-                                        if j < math.ceil(num_votes[i] / 3):
-                                            if j > 0:
-                                                tag = tag.next_sibling.next_sibling
-                                        elif j == math.ceil(num_votes[i]/3):
-                                            tag = starting_tags[1].next
-                                            while tag == '\n':
-                                                tag = tag.next
-                                        elif j > math.ceil(num_votes[i] /3) and j < 2*math.ceil(num_votes[i]/3):
-                                            tag = tag.next_sibling.next_sibling
-                                        elif j == 2*math.ceil(num_votes[i]/3):
-                                            tag = starting_tags[2].next
-                                            while tag == '\n':
-                                                tag = tag.next
-                                        elif j > 2*math.ceil(num_votes[i]/3):
-                                            tag = tag.next_sibling.next_sibling
-
-                                        #Democrats are in italics
-                                        if tag.name == 'i':
-                                            party = "R"
-                                        #Independents are underlined
-                                        elif tag.name == 'u':
-                                            party = "I"
-                                        #Republicans are in roman
-                                        elif tag.name is None:
-                                            party = "D"
-                                        #Manipulating representative name
-                                        rep_name = tag.string
-                                        #Store state if it's there
-                                        if bool(re.compile(r"\(").search(rep_name)):
-                                            got_state = True
-                                            state = rep_name.split(sep='(')[-1][0:2]
-                                            #Remove the state from the rep_name
-                                            rep_name = ''.join(rep_name.split(sep='(')[:-1]).strip()
-                                        #Following we add the vote to the Rep dict, but
-                                        #   first we have to uniquely identify the Rep.
-                                        #   We use state, party, and session of Congress
-                                        #   if all we have is the last name.
-                                        #if ',' in rep_name:
-                                        #    Representatives[rep_name][vote_types[i]].append(bill_name)
-                                        #    print("Success1")
-                                        #else:
-                                        for key in Representatives.keys():
-                                            if rep_name == key.split(sep=',')[0]:
-                                                #Use state information to get the right senator
-                                                #   if you have it
-                                                if got_state == True:
-                                                    if state == Representatives[key]["State"] and party == Representatives[key]["Party"] and session in Representatives[key]["Sessions"]:
-                                                        Representatives[key][vote_types[i]].append(bill_name)
-                                                        #print("Success 1", bill_name)
-                                                        #print(Representatives[key])
-                                                #This is if we don't have state information
-                                                else:
-                                                    if party == Representatives[key]["Party"] and session in Representatives[key]["Sessions"]:
-                                                        Representatives[key][vote_types[i]].append(bill_name)
-                                                        #print("Success 2")
-                                    #print(Representatives)
-                                """
                                 break
 
                         if found == False:
@@ -658,13 +467,14 @@ def get_cost_estimates(bill_names):
     Returns:
         (dict): each bill name with its net cost estimate
     """
-    #start_time = time.time()
+    start_time = time.time()
     home_url = "https://www.cbo.gov"
     base_url = "https://www.cbo.gov/cost-estimates"
-    #important_bills = list()
+    important_bills = list()
     bill_costs = dict()
     count = 0
     costs, revenues = [],[]
+    successes, failures = list(), list()
     try:
         browser = webdriver.Chrome()
         for bill_name in bill_names:
@@ -702,7 +512,11 @@ def get_cost_estimates(bill_names):
                 continue
             browser.get(home_url + link)
             soup = BeautifulSoup(browser.page_source, 'html.parser')
-            year = int(soup.find("time").string.split()[-1])
+            try:
+                year = int(soup.find("time").string.split()[-1])
+            except:
+                print(bill_name, "failed to retrieve year")
+                continue
             #Navigate to the pdf
             try:
                 pdf_link = soup.find(name='a', string="View Document").attrs['href']
@@ -711,7 +525,11 @@ def get_cost_estimates(bill_names):
                 continue
             browser.get(home_url + pdf_link)
             #Extract the text from the pdf to start parsing for costs/revenues
-            urlretrieve(home_url + pdf_link, "pdfs/temp.pdf")
+            try:
+                urlretrieve(home_url + pdf_link, "pdfs/temp.pdf")
+            except:
+                print(bill_name, "failed to get pdf")
+                continue
             try:
                 text = textract.process("pdfs/temp.pdf").decode("utf-8")
             except:
@@ -734,12 +552,15 @@ def get_cost_estimates(bill_names):
 ################################################################################
             first_year, last_year = None, None
             for i, sentence in enumerate(sentences):
+                found_cost = False
                 try:
                     dollar_strings = re.compile(r"\$\d+(?:,\d+)?(?:\.\d+)?\n? ?(?:billion|million)?", re.IGNORECASE).findall(sentence)
                 except:
                     #print(bill_name, "couldn't find dollar string")
                     continue
                 for dollar_string in dollar_strings:
+                    cost_keyword_finder = re.compile(r"(?:cost|provides|(?:additional|increase|resul).*(?:spending|outlay)|discretion.*spending|(?:decrease|reduc).*revenue|and premium payments|revenue.*losses).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
+                    strict_revenue_finder = re.compile(r"(?:(?:additional|increase|resul)[^\$]+(?:sav|revenue|collection|assessments)|(?:reduc|decrease)[^\$]+(?:cost|spend|outlay)|(?:cost|spend|outlay)[^\$]+decrease|(?:offsetting|rais)[^\$]+(?:collect|receipts))[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
                     last_dollar, last_last_year, last_first_year = dollar, last_year, first_year
                     first_year, last_year = None, None
                     #print(dollar_string)
@@ -756,14 +577,15 @@ def get_cost_estimates(bill_names):
                     #   cost-keyword and revenue-keyword occur in the same
                     #   sentence so the most recent keyword must not be revenue-
                     #   if we're looking for cost and vice-versa
-                    #stop undoing now
-                    if bool(re.compile(r"(?:cost|provides|(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:spending|outlay)|discretion[ a-z\-]*\n*[ a-z\-]*spending|reduc[ a-z\-]*\n*[ a-z\-]*revenue|appropriat|authori|and premium payments|revenue[ a-z\-]*\n*[ a-z\-]losses).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL).search(sentence)) and not bool(re.compile(r"(?:(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:sav|revenue|collection|assessments)|(?:reduc|decrease)[ a-z\-]*\n*[ a-z\-]*(?:cost|spend|outlay)|(?:cost|spend|outlay)[ a-z\-]*\n*[ a-z\-]*decrease|(?:offsetting|rais)[ a-z\-]*\n*[ a-z\-]*(?:collect|receipts))[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.MULTILINE).search(sentence)):
+                    #if bool(re.compile(r"(?:cost|provides|(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:spending|outlay)|discretion[ a-z\-]*\n*[ a-z\-]*spending|reduc[ a-z\-]*\n*[ a-z\-]*revenue|appropriat|authori|and premium payments|revenue[ a-z\-]*\n*[ a-z\-]losses).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL).search(sentence)) and not bool(re.compile(r"(?:(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:sav|revenue|collection|assessments)|(?:reduc|decrease)[ a-z\-]*\n*[ a-z\-]*(?:cost|spend|outlay)|(?:cost|spend|outlay)[ a-z\-]*\n*[ a-z\-]*decrease|(?:offsetting|rais)[ a-z\-]*\n*[ a-z\-]*(?:collect|receipts))[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.MULTILINE).search(sentence)):
+                    if bool(cost_keyword_finder.search(sentence)) and not bool(strict_revenue_finder.search(sentence)):
                         #If the dollar_string is nested in parentheses, don't
                         #   count it as a cost
                         if bool(re.compile(r"\([^\)]*"+dollar_string[1:]).search(sentence)):
                             #skip to next dollar_string
                             continue
                         cost += dollar
+                        found_cost = True
                         #Sometimes there is an estimate that overlaps another
                         #   estimate e.g. $X from 2000-2003 and $Y from 2000-2010
                         #   so in this following code we remove $X from the total
@@ -790,7 +612,7 @@ def get_cost_estimates(bill_names):
                         #If cost or revenue is yearly, cumulate it according to the
                         #   number of years that have occurred since the year after
                         #   the passing of the bill (or as is specified in the text)
-                        if bool(re.compile(dollar_string[1:] + r".*?(?:each[ a-z]{1,25}year|a year|annually)").search(sentence)):
+                        if bool(re.compile(dollar_string[1:] + r".*?(?:each[ a-z]{1,25}year|a year|annually)").search(sentence)) or bool(re.compile(r"(?:each[ a-z]{1,25}year|annually)[^\$]+"+r"\$"+dollar_string[1:]).search(sentence)):
                             if last_year is not None:
                                 end_year = last_year
                             else:
@@ -801,27 +623,19 @@ def get_cost_estimates(bill_names):
                                 begin_year = year+1
                             #Add one to include the endpoints
                             cost += (1+end_year - begin_year)*dollar - dollar
-                        #If at some point they cite the total expense of a bill
-                        #   we want to take that as the cost and not double count
-                        #   any of the pieces previously mentioned. That's also
-                        #   the reason for the else:continue; break sequence below
-                        #if bool(re.compile(r"total.{1,21}?\$"+dollar_string[1:], re.IGNORECASE).search(sentence)):
-                        #    cost = dollar
-                        #    print(bill_name, "used total option")
-                        #    break
-                #else:
-                #    continue
-                #break
 ################################################################################
 #Now for revenues                                                              #
 ################################################################################
-            for i, sentence in enumerate(sentences):
+            #for i, sentence in enumerate(sentences):
+                found_revenue = False
                 try:
                     dollar_strings = re.compile(r"\$\d+(?:,\d+)?(?:\.\d+)?(?: billion| million)?", re.IGNORECASE).findall(sentence)
                 except:
                     #print(bill_name, "couldn't find dollar string")
                     continue
                 for dollar_string in dollar_strings:
+                    revenue_keyword_finder = re.compile(r"(?:(?:additional|increase|resul).*(?:sav|revenue|collection|assessments)|(?:reduc|decrease).*(?:cost|spend|outlay)|(?:cost|spend|outlay).*decrease|(?:offsetting|rais).*(?:collect|receipts)).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
+                    strict_cost_finder =  re.compile(r"(?:cost|provides|(?:additional|increase|resul)[^\$]+(?:spending|outlay)|discretion[^\$]+spending|(?:decrease|reduc)[^\$]+revenue|and premium payments|revenue[^\$]+losses)[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
                     last_dollar, last_last_year, last_first_year = dollar, last_year, first_year
                     first_year, last_year = None, None
                     digits = re.compile(r"\d+(?:,\d+)?(?:\.\d+)?").findall(dollar_string)[0].replace(',','').replace('\n',' ')
@@ -837,13 +651,15 @@ def get_cost_estimates(bill_names):
                     #   cost-keyword and revenue-keyword occur in the same
                     #   sentence so the most recent keyword must not be revenue-
                     #   if we're looking for cost and vice-versa
-                    if bool(re.compile(r"(?:(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:revenue|collection|assessments)|sav|(?:reduc|decrease)[ a-z\-]*\n*[ a-z\-]*(?:cost|spend|outlay)|(?:cost|spend|outlay)[ a-z\-]*\n*[ a-z\-]*decrease|(?:offsetting|rais)[ a-z\-]*\n*[ a-z\-]*(?:collection|receipts)).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL).search(sentence)) and not bool(re.compile(r"(?:cost|provides|(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:spending|outlay)|reduc[ a-z\-]*\n*[ a-z\-]*revenue|appropriat|and premium payments)[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.MULTILINE).search(sentence)):
+                    #if bool(re.compile(r"(?:(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:revenue|collection|assessments)|sav|(?:reduc|decrease)[ a-z\-]*\n*[ a-z\-]*(?:cost|spend|outlay)|(?:cost|spend|outlay)[ a-z\-]*\n*[ a-z\-]*decrease|(?:offsetting|rais)[ a-z\-]*\n*[ a-z\-]*(?:collection|receipts)).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL).search(sentence)) and not bool(re.compile(r"(?:cost|provides|(?:additional|increase|resul)[ a-z\-]*\n*[ a-z\-]*(?:spending|outlay)|reduc[ a-z\-]*\n*[ a-z\-]*revenue|appropriat|and premium payments)[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.MULTILINE).search(sentence)):
+                    if bool(revenue_keyword_finder.search(sentence)) and not bool(cost_keyword_finder.search(sentence)):
                         #If the dollar_string is nested in parentheses, don't
                         #   count it as a cost
                         if bool(re.compile(r"\([^\)]*"+dollar_string[1:]).search(sentence)):
                             #skip to next dollar_string
                             continue
                         revenue += dollar
+                        found_revenue = True
                         #Sometimes there is an estimate that overlaps another
                         #   estimate e.g. $X from 2000-2003 and $Y from 2000-2010
                         #   so in this following code we remove $X from the total
@@ -860,7 +676,7 @@ def get_cost_estimates(bill_names):
                         except:
                             #No last year
                             pass
-                        if last_year is not None and last_last_year is not None:
+                        if last_year is not None and last_last_year is not None and not found_cost:
                             if first_year is not None and last_first_year is not None:
                                 if first_year <= last_first_year and last_year>=last_last_year:
                                     revenue -= last_dollar
@@ -870,7 +686,7 @@ def get_cost_estimates(bill_names):
                         #If cost or revenue is yearly, cumulate it according to the
                         #   number of years that have occurred since the year after
                         #   the passing of the bill (or as is specified in the text)
-                        if bool(re.compile(dollar_string[1:] + r".*?(?:each[ a-z]{1,25}year|a year|annually)").search(sentence)):
+                        if bool(re.compile(dollar_string[1:] + r".*?(?:each[ a-z]{1,25}year|a year|annually)").search(sentence)) or bool(re.compile(r"(?:each[ a-z]{1,25}year|annually)[^\$]+"+r"\$"+dollar_string[1:]).search(sentence)):
                             if last_year is not None:
                                 end_year = last_year
                             else:
@@ -881,26 +697,21 @@ def get_cost_estimates(bill_names):
                                 begin_year = year+1
                             #Add one to include the endpoints
                             revenue += (1+end_year - begin_year)*dollar - dollar
-                        #If at some point they cite the total expense of a bill
-                        #   we want to take that as the cost and not double count
-                        #   any of the pieces previously mentioned. That's also
-                        #   the reason for the else:continue; break sequence below
-                        #if bool(re.compile(r"total.{1,21}?\$"+dollar_string[1:], re.IGNORECASE).search(sentence)):
-                        #    revenue = dollar
-                        #    break
-                #else:
-                #    continue
-                #break
 
+            print(bill_name, re.compile(r"\$\d+(?:,\d+)?(?:\.\d+)?(?: billion| million)?", re.IGNORECASE | re.DOTALL | re.MULTILINE).findall(summary))
             if cost!=0 or revenue!=0:
                 count += 1
-                #print(bill_name, "cost:", cost)
-                #print(bill_name, "revenue:", revenue)
+                print(bill_name, "cost:", "{:,}".format(cost))
+                print(bill_name, "revenue:", "{:,}".format(revenue))
+
+                #if input("Were these costs and revenues correct? (Answer Yes or No)\nResponse: ") == "Yes":
+                #    successes.append(bill_name)
+                #else:
+                #    failures.append(bill_name)
 
 
 
-            #print(bill_name, re.compile(r"\$\d+(?:,\d+)?(?:\.\d+)?(?: billion| million)?", re.IGNORECASE | re.DOTALL | re.MULTILINE).findall(summary))
-            #important_bills.append(bill_name)
+            important_bills.append(bill_name)
             #costs.append(cost)
             #revenues.append(revenue)
             if cost < 0:
@@ -910,9 +721,9 @@ def get_cost_estimates(bill_names):
             bill_costs[bill_name]= revenue - cost
     finally:
         browser.close()
-    #print("count:", count)
-    #running_time = time.time()-start_time
-    #print("Time to run:", int(running_time//60), "minutes and", int(running_time%60), "seconds")
+    print("count:", count)
+    running_time = time.time()-start_time
+    print("Time to run:", int(running_time//60), "minutes and", int(running_time%60), "seconds")
     return bill_costs
 
 def assign_scores(Representatives, Senators, scores):
@@ -939,9 +750,16 @@ def create_csv(Representatives, Senators):
     df = pd.DataFrame({"Name":pd.Series(names), "Position":pd.Series(positions), "Party":pd.Series(parties), "State":pd.Series(states), "Tenure":pd.Series(tenures), "Score":pd.Series(scores), "YOB":pd.Series(births)})
     df.to_csv("scores_data.csv")
 
-"""
+def random_bills(n=10, sessions=[i for i in range(105,116)]):
+    bill_names = get_bill_names(sessions)
+    bill_names = np.array(bill_names[0] + bill_names[1])
+    random_mask = np.random.randint(0, len(bill_names), n)
+    return [name for name in bill_names[random_mask]]
+
+
+
 if __name__ == "__main__":
-    start_times = time.time()
+    start_time = time.time()
     Representatives, Senators = quick_members_of_congress()
     bill_names = get_bill_names()
     bill_names = bill_names[0] + bill_names[1]
@@ -952,4 +770,3 @@ if __name__ == "__main__":
     create_csv(Representatives, Senators)
     running_time = time.time()-start_time
     print("Time to run:", int(running_time//(60*60)), "hours and", int(running_time%(60*60)//60), "minutes")
-"""
