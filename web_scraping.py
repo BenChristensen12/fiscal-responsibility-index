@@ -538,10 +538,13 @@ def get_cost_estimates(bill_names):
             #Put the dash back in the 1999-2000 that textract accidentally takes
             #   out.
             text = re.sub(r"(\d{4})(\d{4})", r"\1-\2", text)
+            temp_input = input("Continue?")
             try:
                 summary = re.compile(r"SUMMARY.*?[A-Z ]{12,}", re.DOTALL).findall(text)[0]
+
             except:
                 #print(bill_name, 'No "ESTIMATED COST" section')
+                search_deficits = re.compile(r"Net[^\n\.]*", re.IGNORECASE)
                 continue
             #Split the summary into sentences
             sentences = re.compile(r"\. [A-Z]|\.\n[A-Z]").split(summary)
@@ -704,10 +707,10 @@ def get_cost_estimates(bill_names):
                 print(bill_name, "cost:", "{:,}".format(cost))
                 print(bill_name, "revenue:", "{:,}".format(revenue))
 
-                #if input("Were these costs and revenues correct? (Answer Yes or No)\nResponse: ") == "Yes":
-                #    successes.append(bill_name)
-                #else:
-                #    failures.append(bill_name)
+                if input("Were these costs and revenues correct? (Answer Yes or No)\nResponse: ") == "Yes":
+                    successes.append(bill_name)
+                else:
+                    failures.append(bill_name)
 
 
 
@@ -748,7 +751,7 @@ def create_csv(Representatives, Senators):
     scores = [Representatives[Rep]["score"] for Rep in Representatives.keys()] + [Senators[Sen]["score"] for Sen in Senators.keys()]
     births = [Representatives[Rep]["Birth"] for Rep in Representatives.keys()] + [Senators[Sen]["Birth"] for Sen in Senators.keys()]
     df = pd.DataFrame({"Name":pd.Series(names), "Position":pd.Series(positions), "Party":pd.Series(parties), "State":pd.Series(states), "Tenure":pd.Series(tenures), "Score":pd.Series(scores), "YOB":pd.Series(births)})
-    df.to_csv("scores_data.csv")
+    df.to_csv("scores_data.csv", index=False)
 
 def random_bills(n=10, sessions=[i for i in range(105,116)]):
     bill_names = get_bill_names(sessions)
@@ -757,7 +760,16 @@ def random_bills(n=10, sessions=[i for i in range(105,116)]):
     return [name for name in bill_names[random_mask]]
 
 
+def test_run(n=50, sessions=[i for i in range(105,116)]):
+    Representatives, Senators = quick_members_of_congress(sessions)
+    bill_names = random_bills(n, sessions)
+    get_representative_voting_records(Representatives, sessions)
+    get_senator_voting_records(Senators, sessions)
+    scores = get_cost_estimates(bill_names)
+    assign_scores(Representatives, Senators, scores)
+    return Representatives, Senators, scores
 
+"""
 if __name__ == "__main__":
     start_time = time.time()
     Representatives, Senators = quick_members_of_congress()
@@ -770,3 +782,4 @@ if __name__ == "__main__":
     create_csv(Representatives, Senators)
     running_time = time.time()-start_time
     print("Time to run:", int(running_time//(60*60)), "hours and", int(running_time%(60*60)//60), "minutes")
+"""
