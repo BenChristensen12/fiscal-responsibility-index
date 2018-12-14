@@ -356,9 +356,9 @@ def get_representative_voting_records(Representatives, sessions=[i for i in rang
             #115 Session of Congress only has 1 roll call page
             elif session == 115:
                 index = -1
-                num_sessions = 1
+                num_sessions = 2
                 options = [option_elements[-1]]
-                years = [2017]
+                years = [2017, 2018]
             #Every other session has two roll call pages
             else:
                 num_sessions = 2
@@ -367,13 +367,16 @@ def get_representative_voting_records(Representatives, sessions=[i for i in rang
                 year1 = 2*(session - 102) + 1991
                 years = [year1, year1 + 1]
             for i in range(num_sessions):
-                #There are two years for each session the first "option"
-                #   corresponds to the first year; similarly for the second option
                 year = years[i]
-                option = browser.find_elements_by_tag_name("option")[index+i]
-                submit_button = browser.find_elements_by_tag_name("input")[-2]
-                option.click()
-                submit_button.click()
+                if session == 115 and i > 0:
+                    browser.get("http://clerk.house.gov/evs/2018/index.asp")
+                else:
+                    #There are two years for each session the first "option"
+                    #   corresponds to the first year; similarly for the second option
+                    option = browser.find_elements_by_tag_name("option")[index+i]
+                    submit_button = browser.find_elements_by_tag_name("input")[-2]
+                    option.click()
+                    submit_button.click()
                 #This brings us to a page with links to pages each containing
                 #   several of the roll call vote records for the given year
                 soup = BeautifulSoup(browser.page_source, 'html.parser')
@@ -474,26 +477,33 @@ def get_cost_estimates(bill_names):
     bill_costs = dict()
     count = 0
     costs, revenues = [],[]
+    no_report, from_summary, from_pdf, no_estimate = list(), list(), list(), list()
     successes, failures = list(), list()
     try:
         browser = webdriver.Chrome()
         for bill_name in bill_names:
+            found_summary = False
             cost, revenue, dollar = 0, 0, 0
             name, session = bill_name.split(sep='-')
             #go to the cost estimates page and search for the bill name
             browser.get(base_url)
             browser_elements = browser.find_elements_by_tag_name("input")
-            search_bill = browser_elements[4]
-            search_button = browser_elements[8]
-            search_bill.clear()
-            search_bill.send_keys(name)
-            search_button.click()
+            try:
+                search_bill = browser_elements[4]
+                search_button = browser_elements[8]
+                search_bill.clear()
+                search_bill.send_keys(name)
+                search_button.click()
+            except:
+                no_report.append(bill_name)
+                continue
             #Limit the search to the session of congress that bill was passed
             soup = BeautifulSoup(browser.page_source, 'html.parser')
             try:
                 link = soup.find(name='span', attrs={"class":"facet-item__value"}, string=re.compile(session)).previous.attrs['href']
             except:
                 #print(bill_name, "No CBO estimate")
+                no_report.append(bill_name)
                 continue
             browser.get(home_url + link)
             #cbo.gov has strings as S. 1582 rather than S.1582 so we must
@@ -509,47 +519,91 @@ def get_cost_estimates(bill_names):
                 link = soup.find(name='a', string=re.compile(new_name)).attrs['href']
             except:
                 #print(bill_name, "Failed to get bill's cost estimate page")
+                no_report.append(bill_name)
                 continue
             browser.get(home_url + link)
             soup = BeautifulSoup(browser.page_source, 'html.parser')
+            #Find the year for calculating total costs for annual estimates
+            #   when no date range is given for the number of years.
+            #   Explained more below.
             try:
                 year = int(soup.find("time").string.split()[-1])
             except:
                 print(bill_name, "failed to retrieve year")
+                no_estimate.append(bill_name)
                 continue
-            #Navigate to the pdf
+            #Try to get the summary without downloading the pdf
             try:
-                pdf_link = soup.find(name='a', string="View Document").attrs['href']
-            except exception as e:
-                #print(bill_name, 'failed to get the pdf link')
-                continue
-            browser.get(home_url + pdf_link)
-            #Extract the text from the pdf to start parsing for costs/revenues
-            try:
-                urlretrieve(home_url + pdf_link, "pdfs/temp.pdf")
-            except:
-                print(bill_name, "failed to get pdf")
-                continue
-            try:
-                text = textract.process("pdfs/temp.pdf").decode("utf-8")
-            except:
-                #print(bill_name, "Error exracting text from pdf")
-                continue
-            #Put the dash back in the 1999-2000 that textract accidentally takes
-            #   out.
-            text = re.sub(r"(\d{4})(\d{4})", r"\1-\2", text)
-            temp_input = input("Continue?")
-            try:
-                summary = re.compile(r"SUMMARY.*?[A-Z ]{12,}", re.DOTALL).findall(text)[0]
+                tags = soup.find_all(name='p')
+                summary = [tag.string for tag in tags]
+                #combine all the paragaphs into one text string
+                summary = ''.join([paragraph+'\n\n' for paragraph in summary]).strip()[:-1]
+                if bool(re.compile(r"\$\d+(?:,\d+)?(?:\.\d+)?\n? ?(?:billion|million)?", re.IGNORECASE).search(summary)):
+                    found_summary = True
+                    from_summary.append(bill_name)
 
             except:
-                #print(bill_name, 'No "ESTIMATED COST" section')
-                search_deficits = re.compile(r"Net[^\n\.]*", re.IGNORECASE)
-                continue
+                pass
+
+            #Download the pdf if you have to
+            if found_summary is not True:
+                #Navigate to the pdf
+                try:
+                    pdf_link = soup.find(name='a', string="View Document").attrs['href']
+                except exception as e:
+                    #print(bill_name, 'failed to get the pdf link')
+                    no_estimate.append(bill_name)
+                    continue
+                browser.get(home_url + pdf_link)
+                #Extract the text from the pdf to start parsing for costs/revenues
+                try:
+                    urlretrieve(home_url + pdf_link, "pdfs/temp.pdf")
+                except:
+                    print(bill_name, "failed to get pdf")
+                    no_estimate.append(bill_name)
+                    continue
+                try:
+                    text = textract.process("pdfs/temp.pdf").decode("utf-8")
+                except:
+                    #print(bill_name, "Error exracting text from pdf")
+                    no_estimate.append(bill_name)
+                    continue
+                #Put the dash back in the 1999-2000 that textract accidentally takes
+                #   out.
+                text = re.sub(r"(\d{4}) ?(\d{4})", r"\1-\2", text)
+                #temp_input = input("Continue? ")
+                try:
+                    #summary = re.compile(r"SUMMARY.*?[A-Z ]{12,}", re.DOTALL).findall(text)[0]
+                    summary = re.compile(r"[A-Z ]{7,}.*?[A-Z ]{12,}", re.DOTALL).findall(text)[1] #Trying to grab more cases this way
+                    #print("Summary:", summary)
+                    if bool(re.compile(r"\$\d+(?:,\d+)?(?:\.\d+)?\n? ?(?:billion|million)?", re.IGNORECASE).search(summary)):
+                        found_summary = True
+                        from_pdf.append(bill_name)
+                except Exception as e:
+                    print("Couldn't find dollar_string in pdf")
+                    no_estimate.append(bill_name)
+                    continue
+
+#                if not found_summary:
+#                    #print(bill_name, 'No "ESTIMATED COST" section')
+#                    try:
+#                        table_years = [year for year in re.compile(r"(?:\d{4}\n{1,2}){3,}(?:\d{4}[ -]?\d{4}\n{,2}){,2}").findall(text)[0].split(sep='\n') if year != '']
+#                        string = re.compile(r"deficit.*[\n \-\d\.\,\*]{16,}", re.IGNORECASE|re.DOTALL).findall(text)[0]
+#                        nums = [digit for digit in string.split(sep='\n') if digit != '' and not bool(re.compile(r"[a-zA-z]").search(digit))]
+#                        deficit = int(nums[len(table_years)-1].replace(',',''))
+#                        if bool(re.compile(r"billions of dollars", re.IGNORECASE).search(text)):
+#                            bill_costs[bill_name]= -1e9*deficit
+#                            print(bill_name, -1e9*deficit)
+#                        elif bool(re.compile(r"millions of dollars", re.IGNORECASE).search(text)):
+#                            bill_costs[bill_name]= -1e6*deficit
+#                            print(bill_name, -1e6*deficit)
+#                    except Exception as e:
+#                        print("Finding the table didn't work either")
+#                        print("Exception:", e)
+#                    continue
+
             #Split the summary into sentences
             sentences = re.compile(r"\. [A-Z]|\.\n[A-Z]").split(summary)
-            #Find if the sentence has the word total in it.
-            #   if it does, take the last $ as the total cost
 ################################################################################
 #First for costs                                                               #
 ################################################################################
@@ -562,8 +616,8 @@ def get_cost_estimates(bill_names):
                     #print(bill_name, "couldn't find dollar string")
                     continue
                 for dollar_string in dollar_strings:
-                    cost_keyword_finder = re.compile(r"(?:cost|provides|(?:additional|increase|resul).*(?:spending|outlay)|discretion.*spending|(?:decrease|reduc).*revenue|and premium payments|revenue.*losses).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
-                    strict_revenue_finder = re.compile(r"(?:(?:additional|increase|resul)[^\$]+(?:sav|revenue|collection|assessments)|(?:reduc|decrease)[^\$]+(?:cost|spend|outlay)|(?:cost|spend|outlay)[^\$]+decrease|(?:offsetting|rais)[^\$]+(?:collect|receipts))[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
+                    cost_keyword_finder = re.compile(r"(?:cost|provides|(?:additional|increase|resul).*(?:spending|outlay)|discretion.*spending|(?:decrease|reduc).*revenue|and premium payments|revenue.*(?:lower|losses)).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
+                    strict_revenue_finder = re.compile(r"(?:(?:additional|increase|resul)[^\$]+(?:sav|revenue|collection|assessments)|(?:reduc|decrease)[^\$]+(?:cost|spend|outlay)|(?:cost|spend|outlay)[^\$]+(?:decrease|lower)|(?:offsetting|rais)[^\$]+(?:collect|receipts))[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
                     last_dollar, last_last_year, last_first_year = dollar, last_year, first_year
                     first_year, last_year = None, None
                     #print(dollar_string)
@@ -637,8 +691,8 @@ def get_cost_estimates(bill_names):
                     #print(bill_name, "couldn't find dollar string")
                     continue
                 for dollar_string in dollar_strings:
-                    revenue_keyword_finder = re.compile(r"(?:(?:additional|increase|resul).*(?:sav|revenue|collection|assessments)|(?:reduc|decrease).*(?:cost|spend|outlay)|(?:cost|spend|outlay).*decrease|(?:offsetting|rais).*(?:collect|receipts)).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
-                    strict_cost_finder =  re.compile(r"(?:cost|provides|(?:additional|increase|resul)[^\$]+(?:spending|outlay)|discretion[^\$]+spending|(?:decrease|reduc)[^\$]+revenue|and premium payments|revenue[^\$]+losses)[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
+                    revenue_keyword_finder = re.compile(r"(?:(?:additional|increase|resul).*(?:sav|revenue|collection|assessments)|(?:reduc|decrease).*(?:cost|spend|outlay)|(?:cost|spend|outlay).*(?:decrease|lower)|(?:offsetting|rais).*(?:collect|receipts)).*"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
+                    strict_cost_finder =  re.compile(r"(?:cost|provides|(?:additional|increase|resul)[^\$]+(?:spending|outlay)|discretion[^\$]+spending|(?:decrease|reduc)[^\$]+revenue|and premium payments|revenue[^\$]+(?:losses|lower))[^\$]+"+r"\$"+dollar_string[1:], re.IGNORECASE | re.DOTALL)
                     last_dollar, last_last_year, last_first_year = dollar, last_year, first_year
                     first_year, last_year = None, None
                     digits = re.compile(r"\d+(?:,\d+)?(?:\.\d+)?").findall(dollar_string)[0].replace(',','').replace('\n',' ')
@@ -707,10 +761,10 @@ def get_cost_estimates(bill_names):
                 print(bill_name, "cost:", "{:,}".format(cost))
                 print(bill_name, "revenue:", "{:,}".format(revenue))
 
-                if input("Were these costs and revenues correct? (Answer Yes or No)\nResponse: ") == "Yes":
-                    successes.append(bill_name)
-                else:
-                    failures.append(bill_name)
+                #if input("Were these costs and revenues correct? (Answer Yes or No)\nResponse: ") == "Yes":
+                #    successes.append(bill_name)
+                #else:
+                #    failures.append(bill_name)
 
 
 
@@ -727,7 +781,7 @@ def get_cost_estimates(bill_names):
     print("count:", count)
     running_time = time.time()-start_time
     print("Time to run:", int(running_time//60), "minutes and", int(running_time%60), "seconds")
-    return bill_costs
+    return bill_costs, no_report, from_summary, from_pdf, no_estimate
 
 def assign_scores(Representatives, Senators, scores):
     for Sen in Senators.keys():
@@ -769,7 +823,6 @@ def test_run(n=50, sessions=[i for i in range(105,116)]):
     assign_scores(Representatives, Senators, scores)
     return Representatives, Senators, scores
 
-"""
 if __name__ == "__main__":
     start_time = time.time()
     Representatives, Senators = quick_members_of_congress()
@@ -777,9 +830,8 @@ if __name__ == "__main__":
     bill_names = bill_names[0] + bill_names[1]
     get_representative_voting_records(Representatives)
     get_senator_voting_records(Senators)
-    scores = get_cost_estimates(bill_names)
+    scores, no_report, from_summary, from_pdf, no_estimate = get_cost_estimates(bill_names)
     assign_scores(Representatives, Senators, scores)
     create_csv(Representatives, Senators)
     running_time = time.time()-start_time
     print("Time to run:", int(running_time//(60*60)), "hours and", int(running_time%(60*60)//60), "minutes")
-"""
